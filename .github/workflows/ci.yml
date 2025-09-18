@@ -41,6 +41,8 @@ jobs:
         run: mypy .
 
       - name: Pytest
+        env:
+          PYTHONPATH: .
         run: pytest -q
 
   docker-build:
