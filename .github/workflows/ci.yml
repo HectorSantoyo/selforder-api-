@@ -22,8 +22,8 @@ jobs:
       - name: Install Poetry
         run: pipx install poetry==1.8.3
 
-      - name: Install deps
-        run: poetry install
+      - name: Install deps (with dev)
+        run: poetry install --no-root --with dev
 
       - name: Ruff (lint)
         run: poetry run ruff check .
