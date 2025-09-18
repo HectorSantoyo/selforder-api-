@@ -1,0 +1,44 @@
+[tool.poetry]
+name = "selforder-api"
+version = "0.1.0"
+description = "SelfOrderM API (tenant-ready)"
+authors = ["Tuzo <you@example.com>"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.115.0"
+uvicorn = {extras = ["standard"], version = "^0.30.0"}
+pydantic = "^2.7.0"
+pydantic-settings = "^2.3.0"
+SQLAlchemy = "^2.0.32"
+asyncpg = "^0.29.0"
+alembic = "^1.13.2"
+python-jose = "^3.3.0"
+passlib = {version="^1.7.4", extras=["bcrypt"]}
+httpx = "^0.27.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.2.0"
+pytest-asyncio = "^0.23.7"
+ruff = "^0.5.5"
+black = "^24.8.0"
+mypy = "^1.11.1"
+types-python-jose = "^3.3.4.20240106"
+types-passlib = "^1.7.7.20240819"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.black]
+line-length = 100
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+strict = false
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
