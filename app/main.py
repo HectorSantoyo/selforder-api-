@@ -1,9 +1,22 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.core.config import settings
-from app.api.v1.routers import health
+from app.api.v1.routers import health, shops
 
-app = FastAPI(title=settings.PROJECT_NAME)
+from app.core.config import settings
+from app.db.session import engine
+from app.db.base import Base
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Dev-only: crear tablas si no existen
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+
+
+app = FastAPI(title=settings.PROJECT_NAME, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -14,3 +27,4 @@ app.add_middleware(
 )
 
 app.include_router(health.router, prefix=settings.API_V1)
+app.include_router(shops.router, prefix=settings.API_V1)
