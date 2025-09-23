@@ -34,6 +34,9 @@ jobs:
       - name: Mypy (type-check)
         run: poetry run mypy .
 
+      - name: Copy env file
+        run: cp .env.example .env
+
       # 👉 Aquí levantamos DB + API (usa tu docker-compose.yml)
       - name: Start services (db + api)
         run: docker compose up -d db api
@@ -50,4 +53,3 @@ jobs:
 
       - name: Pytest (inside container)
         run: docker compose exec -T api poetry run pytest -q
-        
