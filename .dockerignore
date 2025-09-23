@@ -1,0 +1,30 @@
+# Cosas que no deben ir al contenedor
+.git
+.gitignore
+.DS_Store
+
+# Cachés y compilados de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+
+# Cachés de herramientas
+.mypy_cache
+.ruff_cache
+.pytest_cache
+
+# Entornos virtuales
+.venv
+venv/
+ENV/
+
+# Archivos de logs
+*.log
+
+# Configuración local
+.env
+
+# Alembic cache (solo las migraciones sí se versionan)
+.alembic_cache

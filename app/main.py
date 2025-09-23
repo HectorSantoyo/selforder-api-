@@ -4,15 +4,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.routers import health, shops
 
 from app.core.config import settings
-from app.db.session import engine
-from app.db.base import Base
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Dev-only: crear tablas si no existen
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # async with engine.begin() as conn:
+    # await conn.run_sync(Base.metadata.create_all)
     yield
 
 
