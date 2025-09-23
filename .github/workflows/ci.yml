@@ -22,6 +22,11 @@ jobs:
       - name: Upgrade pip
         run: python -m pip install --upgrade pip
 
+      # Copiar .env de ejemplo para Docker Compose
+      - name: Copy env file
+        run: cp .env.example .env
+
+      # Lint y type-check en el host (rápido, falla antes de levantar Docker)
       - name: Install Poetry
         run: pip install poetry
 
@@ -34,22 +39,34 @@ jobs:
       - name: Mypy (type-check)
         run: poetry run mypy .
 
-      - name: Copy env file
-        run: cp .env.example .env
+      # ---------- Docker ----------
+      # 1) Levanta SOLO la DB
+      - name: Start Postgres
+        run: docker compose up -d db
 
-      # 👉 Aquí levantamos DB + API (usa tu docker-compose.yml)
-      - name: Start services (db + api)
-        run: docker compose up -d db api
-
+      # 2) Espera a que Postgres esté listo
       - name: Wait for Postgres
         run: |
-          for i in {1..30}; do
-            docker compose exec -T db pg_isready -U ${POSTGRES_USER:-postgres} && break
+          for i in {1..40}; do
+            docker compose exec -T db pg_isready -U ${POSTGRES_USER:-postgres} && exit 0
             sleep 1
           done
+          echo "Postgres no respondió a tiempo" >&2
+          docker compose logs db --tail=200
+          exit 1
 
-      - name: Run Alembic migrations
-        run: docker compose exec -T api poetry run alembic upgrade head
+      # 3) Migraciones en contenedor efímero (no depende de que 'api' esté arrancado)
+      - name: Run Alembic migrations (one-off)
+        run: docker compose run --rm api poetry run alembic upgrade head
 
-      - name: Pytest (inside container)
-        run: docker compose exec -T api poetry run pytest -q
+      # 4) Tests en contenedor efímero
+      - name: Run tests (one-off)
+        run: docker compose run --rm api poetry run pytest -q
+
+      # 5) Logs útiles si algo falla
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          docker compose ps
+          docker compose logs db --tail=200 || true
+          docker compose logs api --tail=200 || true
