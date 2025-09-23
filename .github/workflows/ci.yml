@@ -6,15 +6,6 @@ on:
   pull_request:
 
 jobs:
-  - name: Start services
-    run: docker compose up -d db api
-
-  - name: Run Alembic migrations
-    run: docker compose exec -T api poetry run alembic upgrade head
-
-  - name: Run tests
-    run: docker compose exec -T api poetry run pytest -q
-    
   test:
     name: Lint, type-check & tests
     runs-on: ubuntu-latest
@@ -53,6 +44,15 @@ jobs:
         env:
           PYTHONPATH: .
         run: pytest -q
+
+      - name: Start services
+        run: docker compose up -d db api
+
+      - name: Run Alembic migrations
+        run: docker compose exec -T api poetry run alembic upgrade head
+
+      - name: Run tests
+        run: docker compose exec -T api poetry run pytest -q
 
   docker-build:
     name: Docker build (sanity)
