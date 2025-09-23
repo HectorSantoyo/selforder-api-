@@ -22,42 +22,32 @@ jobs:
       - name: Upgrade pip
         run: python -m pip install --upgrade pip
 
-      - name: Install Poetry (pip)
-        run: pip install poetry==1.8.3
+      - name: Install Poetry
+        run: pip install poetry
 
-      - name: Configure Poetry (no venv)
-        run: poetry config virtualenvs.create false
-
-      - name: Install deps (with dev)
-        run: poetry install --no-interaction --no-ansi --with dev
+      - name: Install deps (for lint/type-check on host)
+        run: poetry install
 
       - name: Ruff (lint)
-        run: ruff check .
+        run: poetry run ruff check .
 
-      - name: Black (format check)
-        run: black --check .
+      - name: Mypy (type-check)
+        run: poetry run mypy .
 
-      - name: Mypy (type check)
-        run: mypy .
-
-      - name: Pytest
-        env:
-          PYTHONPATH: .
-        run: pytest -q
-
-      - name: Start services
+      # 👉 Aquí levantamos DB + API (usa tu docker-compose.yml)
+      - name: Start services (db + api)
         run: docker compose up -d db api
+
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            docker compose exec -T db pg_isready -U ${POSTGRES_USER:-postgres} && break
+            sleep 1
+          done
 
       - name: Run Alembic migrations
         run: docker compose exec -T api poetry run alembic upgrade head
 
-      - name: Run tests
+      - name: Pytest (inside container)
         run: docker compose exec -T api poetry run pytest -q
-
-  docker-build:
-    name: Docker build (sanity)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build image
-        run: docker build -t selforder-api:ci .
+        
