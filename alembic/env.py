@@ -10,6 +10,7 @@ from app.db.base import Base
 
 # IMPORTANTE: importa los modelos para que Alembic “vea” las tablas
 from app.models import shop  # noqa: F401
+from app.models import category  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:
