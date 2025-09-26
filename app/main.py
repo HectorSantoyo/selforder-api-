@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.v1.routers import health, shops, categories
+from app.api.v1.routers import health, shops, categories, products
 
 from app.core.config import settings
 
@@ -27,3 +27,4 @@ app.add_middleware(
 app.include_router(health.router, prefix=settings.API_V1)
 app.include_router(shops.router, prefix=settings.API_V1)
 app.include_router(categories.router, prefix=settings.API_V1)
+app.include_router(products.router, prefix=settings.API_V1)

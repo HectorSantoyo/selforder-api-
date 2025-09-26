@@ -15,3 +15,4 @@ class Shop(TimestampMixin, Base):
     address: Mapped[str] = mapped_column(String(255), default="")
 
     categories = relationship("Category", back_populates="shop", cascade="all, delete-orphan")
+    products = relationship("Product", back_populates="shop", cascade="all, delete-orphan")

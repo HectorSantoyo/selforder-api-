@@ -23,6 +23,7 @@ class Category(Base):
 
     # relaciones
     shop: Mapped["Shop"] = relationship(back_populates="categories")
+    products = relationship("Product", back_populates="category")
 
     __table_args__ = (
         UniqueConstraint("shop_id", "slug", name="uq_categories_shop_slug"),
