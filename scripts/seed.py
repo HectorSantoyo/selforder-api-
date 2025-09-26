@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from decimal import Decimal
-from typing import Sequence
+from typing import Optional, Dict, Any, List
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -14,150 +14,190 @@ from app.models.shop import Shop
 from app.models.category import Category
 from app.models.product import Product
 
-TENANT_ID = "demo"
-SHOP_NAME = "Demo Shop"
-SHOP_SLUG = "demo-shop"
-SHOP_TIMEZONE = "America/Mexico_City"
 
-CATEGORIES: Sequence[str] = ["Bebidas", "Comidas"]
+# --- Datos demo --------------------------------------------------------------
 
-# Products por categoría (referenciamos por slug de category)
-PRODUCTS: dict[str, Sequence[dict]] = {
+DEMO_TENANT = "demo"
+DEMO_SHOP = {
+    "name": "Demo Shop",
+    "slug": "demo-shop",
+    "timezone": "America/Mexico_City",
+    "address": "",
+}
+
+CATEGORIES: List[Dict[str, str]] = [
+    {"name": "Bebidas", "slug": "bebidas"},
+    {"name": "Comidas", "slug": "comidas"},
+]
+
+# Productos por categoría (precios en float; se convertirán a Decimal)
+PRODUCTS: Dict[str, List[Dict[str, Any]]] = {
     "bebidas": [
-        {"name": "Coca 600", "slug": "Coca 600", "price": Decimal("25.00")},
-        {"name": "Agua 600", "slug": "Agua 600", "price": Decimal("18.00")},
+        {"name": "Coca 600", "slug": "Coca 600", "price": 25.0},
+        {"name": "Agua 600", "slug": "Agua 600", "price": 18.0},
     ],
     "comidas": [
-        {"name": "Torta de Jamón", "slug": "Torta de Jamón", "price": Decimal("45.00")},
-        {"name": "Chilaquiles Verdes", "slug": "Chilaquiles Verdes", "price": Decimal("70.00")},
+        {"name": "Torta de Jamón", "slug": "Torta de Jamón", "price": 45.0},
+        {"name": "Chilaquiles Verdes", "slug": "Chilaquiles Verdes", "price": 70.0},
     ],
 }
 
 
-async def get_or_create_shop(db: AsyncSession) -> Shop:
-    res = await db.execute(select(Shop).where(Shop.slug == SHOP_SLUG))
-    shop = res.scalar_one_or_none()
+# --- Helpers get-or-create ---------------------------------------------------
+
+
+async def get_or_create_shop(
+    db: AsyncSession, *, tenant_id: str, name: str, slug: str, timezone: str, address: str
+) -> Shop:
+    s = slugify(slug)
+    result = await db.execute(select(Shop).where(Shop.tenant_id == tenant_id, Shop.slug == s))
+    shop = result.scalars().first()
     if shop:
+        # Update mínimos si cambió algo
+        changed = False
+        if shop.name != name:
+            shop.name = name
+            changed = True
+        if shop.timezone != timezone:
+            shop.timezone = timezone
+            changed = True
+        if shop.address != address:
+            shop.address = address
+            changed = True
+        if changed:
+            await db.flush()
         return shop
 
     shop = Shop(
-        tenant_id=TENANT_ID,
-        name=SHOP_NAME,
-        slug=SHOP_SLUG,
-        timezone=SHOP_TIMEZONE,
-        address="",
+        tenant_id=tenant_id,
+        name=name,
+        slug=s,
+        timezone=timezone,
+        address=address,
     )
     db.add(shop)
     await db.flush()
     return shop
 
 
-async def get_or_create_category(db: AsyncSession, *, shop_id: int, name: str) -> Category:
-    s = slugify(name)
-    res = await db.execute(select(Category).where(Category.shop_id == shop_id, Category.slug == s))
-    cat = res.scalar_one_or_none()
-    if cat:
-        # mantén el nombre sincronizado si cambió
-        if cat.name != name:
-            cat.name = name
-        return cat
+async def get_or_create_category(
+    db: AsyncSession, *, shop_id: int, name: str, slug: str
+) -> Category:
+    s = slugify(slug)
+    result = await db.execute(
+        select(Category).where(Category.shop_id == shop_id, Category.slug == s)
+    )
+    category = result.scalars().first()
+    if category:
+        if category.name != name:
+            category.name = name
+            await db.flush()
+        return category
 
-    cat = Category(name=name, slug=s, shop_id=shop_id)
-    db.add(cat)
+    category = Category(name=name, slug=s, shop_id=shop_id)
+    db.add(category)
     await db.flush()
-    return cat
+    return category
 
 
 async def get_or_create_product(
     db: AsyncSession,
     *,
     shop_id: int,
-    category_id: int | None,
+    category_id: Optional[int],
     name: str,
-    price: Decimal,
+    price: float,
 ) -> Product:
-    s = slugify(name)  # usamos name como base del slug
-    res = await db.execute(select(Product).where(Product.shop_id == shop_id, Product.slug == s))
-    prod = res.scalar_one_or_none()
-    if prod:
-        # sincroniza datos básicos
-        updated = False
-        if prod.name != name:
-            prod.name = name
-            updated = True
-        if prod.price != price:
-            prod.price = price
-            updated = True
-        if category_id is not None and prod.category_id != category_id:
-            prod.category_id = category_id
-            updated = True
-        if updated:
-            await db.flush()
-        return prod
+    s = slugify(name)  # si quisieras usar un slug distinto, cámbialo por el campo correspondiente
+    result = await db.execute(select(Product).where(Product.shop_id == shop_id, Product.slug == s))
+    product = result.scalars().first()
 
-    prod = Product(
+    # Convertimos el float de entrada a Decimal (mypy-friendly y preciso para dinero)
+    new_price: Decimal = Decimal(str(price))
+
+    if product:
+        changed = False
+        if product.name != name:
+            product.name = name
+            changed = True
+        if product.price != new_price:
+            product.price = new_price
+            changed = True
+        if product.category_id != category_id:
+            product.category_id = category_id
+            changed = True
+        if changed:
+            await db.flush()
+        return product
+
+    product = Product(
         name=name,
         slug=s,
-        price=price,
+        price=new_price,
         shop_id=shop_id,
         category_id=category_id,
     )
-    db.add(prod)
+    db.add(product)
     await db.flush()
-    return prod
+    return product
+
+
+# --- Main --------------------------------------------------------------------
 
 
 async def main() -> None:
-    engine = create_async_engine(settings.DATABASE_URL, echo=False, pool_pre_ping=True)
-    SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+    # Engine y sesión asíncronos
+    engine = create_async_engine(settings.DATABASE_URL, future=True)
+    Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-    async with SessionLocal() as db:
-        shop = await get_or_create_shop(db)
+    async with Session() as db:
+        # 1) Shop
+        shop = await get_or_create_shop(
+            db,
+            tenant_id=DEMO_TENANT,
+            name=DEMO_SHOP["name"],
+            slug=DEMO_SHOP["slug"],
+            timezone=DEMO_SHOP["timezone"],
+            address=DEMO_SHOP["address"],
+        )
 
-        # crea/obtiene categorías
-        cats: list[Category] = []
-        for name in CATEGORIES:
-            cat = await get_or_create_category(db, shop_id=shop.id, name=name)
-            cats.append(cat)
+        # 2) Categorías
+        created_categories: List[Category] = []
+        for cat_def in CATEGORIES:
+            category = await get_or_create_category(
+                db,
+                shop_id=shop.id,
+                name=cat_def["name"],
+                slug=cat_def["slug"],
+            )
+            created_categories.append(category)
 
-        # índice por slug para usarlo al crear productos
-        cat_by_slug = {c.slug: c for c in cats}
+        # Índice slug->objeto para mapear productos
+        categories_by_slug: Dict[str, Category] = {c.slug: c for c in created_categories}
 
-        # crea/actualiza productos por categoría (si la categoría existe)
-        prods: list[Product] = []
+        # 3) Productos
         for cat_slug, items in PRODUCTS.items():
-            cat = cat_by_slug.get(cat_slug)
-            category_id = cat.id if cat else None
+            category_obj: Optional[Category] = categories_by_slug.get(cat_slug)
+            category_id: int | None = category_obj.id if category_obj else None
             for item in items:
-                prod = await get_or_create_product(
+                await get_or_create_product(
                     db,
                     shop_id=shop.id,
                     category_id=category_id,
                     name=item["name"],
-                    price=item["price"],
+                    price=float(item["price"]),
                 )
-                prods.append(prod)
 
         await db.commit()
 
-        # imprime IDs reales para pruebas
-        print(
-            {
-                "shop": {"id": shop.id, "name": shop.name, "slug": shop.slug},
-                "categories": [{"id": c.id, "name": c.name, "slug": c.slug} for c in cats],
-                "products": [
-                    {
-                        "id": p.id,
-                        "name": p.name,
-                        "slug": p.slug,
-                        "price": str(p.price),
-                        "shop_id": p.shop_id,
-                        "category_id": p.category_id,
-                    }
-                    for p in prods
-                ],
-            }
-        )
+        # 4) Resumen
+        summary = {
+            "shop": {"id": shop.id, "name": shop.name, "slug": shop.slug},
+            "categories": [
+                {"id": c.id, "name": c.name, "slug": c.slug} for c in created_categories
+            ],
+        }
+        print(summary)
 
     await engine.dispose()
 

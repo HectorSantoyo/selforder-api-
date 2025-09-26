@@ -1,11 +1,13 @@
-from pydantic import BaseModel, Field, condecimal
+from pydantic import BaseModel, Field
 from typing import Optional
+from decimal import Decimal
 
 
 class ProductCreate(BaseModel):
     name: str
     slug: str = Field(min_length=1)
-    price: condecimal(max_digits=10, decimal_places=2) = 0
+    # ⇩ mypy-friendly: sin condecimal(...)
+    price: Decimal = Field(..., max_digits=10, decimal_places=2)
     shop_id: int
     category_id: Optional[int] = None
 
