@@ -61,7 +61,7 @@ jobs:
 
       # 4) Tests en contenedor efímero
       - name: Run tests (one-off)
-        run: docker compose run --rm api poetry run pytest -q
+        run: docker compose run --rm api poetry run pytest -q || (docker compose logs api && exit 1)
 
       # 5) Logs útiles si algo falla
       - name: Dump logs on failure

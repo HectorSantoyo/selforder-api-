@@ -19,11 +19,13 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://selforder:selforder@db:5432/selforder
-    depends_on: [db]
+    depends_on:
+      db:
+        condition: service_healthy
     ports: ["8000:8000"]
     working_dir: /app
     volumes:
-      - ./:/app            # <-- monta todo el repo dentro del contenedor
+      - ./:/app
     command: bash -lc "poetry run alembic upgrade head && poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 volumes:
   pgdata:
