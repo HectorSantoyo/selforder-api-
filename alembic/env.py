@@ -1,4 +1,7 @@
-from __future__ import annotations
+import sys
+
+sys.path.append("/app")
+# from __future__ import annotations
 import asyncio
 from logging.config import fileConfig
 from sqlalchemy import pool
@@ -8,7 +11,10 @@ from alembic import context
 from app.core.config import settings
 from app.db.base import Base
 
-# IMPORTANTE: importa los modelos para que Alembic “vea” las tablas
+#  modelos para que Alembic “vea” las tablas
+import app.models.shop  # noqa: F401
+import app.models.category  # noqa: F401
+import app.models.product  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:
