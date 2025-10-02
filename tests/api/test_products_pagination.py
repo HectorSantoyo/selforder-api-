@@ -1,4 +1,5 @@
 import pytest
+from uuid import uuid4
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,9 +42,21 @@ async def _create_products(session: AsyncSession, n: int, shop_id: int | None = 
     sid, cid = await _ensure_shop_and_category(session)
     if shop_id is None:
         shop_id = sid
+
+    # Limpia por si hay datos previos (sigue siendo útil)
     await _clear_products(session, shop_id)
+
+    # 👇 sufijo único para evitar colisiones de slug (aunque otra prueba deje datos)
+    run_suffix = uuid4().hex[:8]
+
     items = [
-        Product(name=f"Prod {i}", slug=f"prod-{i}", price=100 + i, shop_id=shop_id, category_id=cid)
+        Product(
+            name=f"Prod {i}",
+            slug=f"prod-{run_suffix}-{i}",  # <--- slug único por ejecución
+            price=100 + i,
+            shop_id=shop_id,
+            category_id=cid,
+        )
         for i in range(n)
     ]
     session.add_all(items)
