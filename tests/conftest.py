@@ -1,8 +1,7 @@
 # tests/conftest.py
 from typing import AsyncGenerator
-
 import pytest_asyncio
-from httpx import AsyncClient
+from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.main import app
@@ -11,8 +10,9 @@ from app.db.session import get_session
 
 @pytest_asyncio.fixture
 async def client() -> AsyncGenerator[AsyncClient, None]:
-    # Prefijamos /api/v1 para que las rutas cortas funcionen en tests
-    async with AsyncClient(app=app, base_url="http://test/api/v1") as ac:
+    # Usa ASGITransport explícito y prefija /api/v1
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test/api/v1") as ac:
         yield ac
 
 
