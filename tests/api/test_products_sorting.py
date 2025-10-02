@@ -1,14 +1,18 @@
 import pytest
+from typing import AsyncGenerator, Optional, Tuple
+from sqlalchemy import select
 import pytest_asyncio
 from decimal import Decimal
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.models.shop import Shop
+from app.models.category import Category
+from app.main import app
+from app.db.session import get_session
 
 # Usa la instancia real de tu app
-from app.main import app
 
 # Usa la dependencia oficial de DB (no importa cómo se llame tu sessionmaker interno)
-from app.db.session import get_session
 
 
 pytestmark = pytest.mark.skip(reason="Se pospone test de sorting hasta tener fixtures compartidas.")
@@ -18,21 +22,15 @@ pytestmark = pytest.mark.skip(reason="Se pospone test de sorting hasta tener fix
 
 
 @pytest_asyncio.fixture
-async def client():
-    """
-    Cliente HTTP asíncrono contra la ASGI app (sin levantar servidor real).
-    """
+async def client() -> AsyncGenerator[AsyncClient, None]:
     async with AsyncClient(app=app, base_url="http://test") as ac:
         yield ac
 
 
 @pytest_asyncio.fixture
-async def session() -> AsyncSession:
-    """
-    Sesión de DB usando la dependencia oficial de la app.
-    """
+async def session() -> AsyncGenerator[AsyncSession, None]:
     agen = get_session()
-    s = await agen.__anext__()  # obtiene AsyncSession
+    s = await agen.__anext__()
     try:
         yield s
     finally:
@@ -45,30 +43,28 @@ async def session() -> AsyncSession:
 # ----------------- Datos de apoyo ----------------- #
 
 
-async def _ensure_shop_and_category(session: AsyncSession) -> tuple[int, int]:
+async def _ensure_shop_and_category(session: AsyncSession) -> Tuple[int, int]:
     """
-    Asegura que existan shop_id=1 y category_id=1. Si no existen, los crea.
-    Devuelve (shop_id, category_id).
+    Asegura que existan shop_id=1 y category_id=1. Devuelve (shop_id, category_id).
     """
-    from sqlalchemy import select
-    from app.models.shop import Shop
-    from app.models.category import Category
-
     # Shop
-    res = await session.execute(select(Shop).where(Shop.id == 1))
-    shop = res.scalar_one_or_none()
+    shop_res = await session.execute(select(Shop).where(Shop.id == 1))
+    shop: Optional[Shop] = shop_res.scalar_one_or_none()
     if shop is None:
         shop = Shop(id=1, name="Test Shop")
         session.add(shop)
         await session.flush()
 
-    # Category (en la misma shop 1)
-    res = await session.execute(select(Category).where(Category.id == 1))
-    cat = res.scalar_one_or_none()
+    # Category
+    cat_res = await session.execute(select(Category).where(Category.id == 1))
+    cat: Optional[Category] = cat_res.scalar_one_or_none()
     if cat is None:
         cat = Category(id=1, name="Test Cat", slug="test-cat", shop_id=1)
         session.add(cat)
         await session.flush()
+
+    # En este punto mypy sabe que no son None si afirmamos:
+    assert shop is not None and cat is not None
 
     await session.commit()
     return shop.id, cat.id
