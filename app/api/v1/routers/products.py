@@ -1,9 +1,10 @@
 from __future__ import annotations
-
-from fastapi import APIRouter, Depends, HTTPException, Query, Path, status
+from decimal import Decimal
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, status, Response
 from sqlalchemy import select, func, or_, asc, desc
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.schemas.common import ListResponse, MetaPagination
 
 from app.db.session import get_session
 from app.models.product import Product
@@ -17,6 +18,7 @@ from app.schemas.product import (
     ProductUpdatePartial,
 )
 from app.core.slugify import slugify
+from app.core.pagination import pagination_params, PaginationParams
 
 router = APIRouter(prefix="/products", tags=["products"])
 
@@ -72,13 +74,24 @@ def resolve_incoming_slug(name: str | None, slug_in: str | None) -> str | None:
 
 
 def sort_clause(sort: ProductSort):
-    mapping = {
+    """
+    Devuelve un par (orden_primario, orden_desempate) para orden estable.
+    - name_asc/desc, price_asc/desc
+    - desempate por id para evitar 'bailes' cuando hay empates
+    """
+    primary = {
         ProductSort.name_asc: asc(Product.name),
         ProductSort.name_desc: desc(Product.name),
         ProductSort.price_asc: asc(Product.price),
         ProductSort.price_desc: desc(Product.price),
-    }
-    return mapping[sort]
+    }[sort]
+
+    # Si el primario es ascendente, desempata por id asc; si es descendente, por id desc
+    is_desc = sort in {ProductSort.name_desc, ProductSort.price_desc}
+    secondary = desc(Product.id) if is_desc else asc(Product.id)
+
+    # devolvemos una tupla para usarla con order_by(*tuple)
+    return (primary, secondary)
 
 
 # ------------------------ CREATE ------------------------ #
@@ -130,36 +143,100 @@ async def create_product(
     return obj
 
 
-# ------------------------ LIST ------------------------ #
+# ------------------------ LIST (con paginación + headers) ------------------------ #
 
 
-@router.get("", response_model=list[ProductOut], status_code=status.HTTP_200_OK)
+@router.get("", response_model=ListResponse[ProductOut], status_code=status.HTTP_200_OK)
 async def list_products(
+    response: Response,
     db: AsyncSession = Depends(get_session),
+    pagination: PaginationParams = Depends(pagination_params),
     shop_id: int = Query(..., ge=1),
     category_id: int | None = Query(None, ge=1),
     q: str | None = Query(None, min_length=1, max_length=100),
-    limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
+    price_min: Decimal | None = Query(None, ge=0, description="Precio mínimo (incluyente)"),
+    price_max: Decimal | None = Query(None, ge=0, description="Precio máximo (incluyente)"),
+    is_active: bool | None = Query(
+        None, description="Filtra por activos/inactivos si el modelo tiene esta columna"
+    ),
     sort: ProductSort = ProductSort.name_asc,
 ):
+    """
+    Lista paginada y filtrada de productos de una shop.
+    - Aplica filtros simétricos a datos y conteo total.
+    - Devuelve headers de paginación: X-Total-Count, X-Limit, X-Offset.
+    """
+
+    # 1) Validaciones previas
     if category_id is not None:
         await ensure_category_in_shop(db, category_id=category_id, shop_id=shop_id)
 
+    if price_min is not None and price_max is not None and price_min > price_max:
+        raise HTTPException(status_code=422, detail="price_min must be <= price_max")
+
+    # 2) Bases SIEMPRE primero (¡evita UnboundLocalError!)
     base = select(Product).where(Product.shop_id == shop_id)
+    count_base = select(func.count(Product.id)).where(Product.shop_id == shop_id)
+
+    # 3) Filtros
     if category_id is not None:
         base = base.where(Product.category_id == category_id)
+        count_base = count_base.where(Product.category_id == category_id)
+
     if q:
         like = f"%{q.lower()}%"
-        base = base.where(
-            or_(
-                func.lower(Product.name).like(like),
-                func.lower(Product.slug).like(like),
-            )
+        cond = or_(
+            func.lower(Product.name).like(like),
+            func.lower(Product.slug).like(like),
         )
-    stmt = base.order_by(sort_clause(sort)).offset(offset).limit(limit)
+        base = base.where(cond)
+        count_base = count_base.where(cond)
+
+    if price_min is not None:
+        base = base.where(Product.price >= price_min)
+        count_base = count_base.where(Product.price >= price_min)
+
+    if price_max is not None:
+        base = base.where(Product.price <= price_max)
+        count_base = count_base.where(Product.price <= price_max)
+
+    if is_active is not None and hasattr(Product, "is_active"):
+        col = getattr(Product, "is_active")
+        base = base.where(col == is_active)
+        count_base = count_base.where(col == is_active)
+
+    # 4) Conteo total (evita ORDER BY en count)
+    count_q = count_base.with_only_columns(func.count(Product.id)).order_by(None)
+    total = int((await db.execute(count_q)).scalar() or 0)
+
+    # 5) Ordenamiento estable + paginación
+    order1, order2 = sort_clause(sort)
+    stmt = base.order_by(order1, order2).offset(pagination.offset).limit(pagination.limit)
     res = await db.execute(stmt)
-    return res.scalars().all()
+    items = res.scalars().all()
+
+    # 6) Headers
+    response.headers["X-Total-Count"] = str(total)
+    response.headers["X-Limit"] = str(pagination.limit)
+    response.headers["X-Offset"] = str(pagination.offset)
+
+    meta = {
+        "pagination": MetaPagination(
+            total=total, limit=pagination.limit, offset=pagination.offset
+        ).model_dump(),
+        # Filtros/orden que llegaron (útiles para front y depuración)
+        "filters": {
+            "shop_id": shop_id,
+            "category_id": category_id,
+            "q": q,
+            "price_min": str(price_min) if price_min is not None else None,
+            "price_max": str(price_max) if price_max is not None else None,
+            "is_active": is_active,
+        },
+        "sort": sort.value,
+    }
+
+    return {"data": items, "meta": meta}
 
 
 # ------------------------ GET by id ------------------------ #
