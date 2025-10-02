@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Path, status, Resp
 from sqlalchemy import select, func, or_, asc, desc
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.schemas.common import ListResponse, MetaPagination, SingleResponse
+from app.schemas.common import ListResponse, MetaPagination, SingleResponse, DeleteResult
 
 from app.db.session import get_session
 from app.models.product import Product
@@ -261,27 +261,34 @@ async def get_product(
 # ------------------------ PUT ------------------------ #
 
 
-@router.put("/{product_id}", response_model=ProductOut, status_code=status.HTTP_200_OK)
+@router.put(
+    "/{product_id}", response_model=SingleResponse[ProductOut], status_code=status.HTTP_200_OK
+)
 async def put_product(
-    body: ProductUpdate,
-    db: AsyncSession = Depends(get_session),
-    product_id: int = Path(..., ge=1),
+    body: ProductUpdate,  # cuerpo completo (reemplazo)
+    db: AsyncSession = Depends(get_session),  # sesión inyectada
+    product_id: int = Path(..., ge=1),  # id en path
 ):
+    # 1) Existe y pertenece a shop
     obj = await fetch_product_or_404(db, product_id=product_id, shop_id=body.shop_id)
 
+    # 2) Validar category -> shop
     if body.category_id is not None:
         await ensure_category_in_shop(db, category_id=body.category_id, shop_id=body.shop_id)
 
+    # 3) Resolver slug
     new_slug = resolve_incoming_slug(body.name, body.slug)
     if new_slug is not None and new_slug != obj.slug:
         if await slug_in_use(db, shop_id=body.shop_id, slug=new_slug, exclude_id=obj.id):
             raise HTTPException(status_code=409, detail="slug already exists for this shop")
         obj.slug = new_slug
 
+    # 4) Actualizar campos
     obj.name = body.name
     obj.price = body.price
     obj.category_id = body.category_id
 
+    # 5) Persistir
     try:
         await db.flush()
     except IntegrityError:
@@ -290,29 +297,37 @@ async def put_product(
 
     await db.commit()
     await db.refresh(obj)
-    return obj
+
+    # 6) Envelope consistente
+    return {"data": obj}
 
 
 # ------------------------ PATCH ------------------------ #
 
 
-@router.patch("/{product_id}", response_model=ProductOut, status_code=status.HTTP_200_OK)
+@router.patch(
+    "/{product_id}", response_model=SingleResponse[ProductOut], status_code=status.HTTP_200_OK
+)
 async def patch_product(
-    body: ProductUpdatePartial,
+    body: ProductUpdatePartial,  # cuerpo parcial
     db: AsyncSession = Depends(get_session),
     product_id: int = Path(..., ge=1),
 ):
+    # 1) Existe y pertenece a shop
     obj = await fetch_product_or_404(db, product_id=product_id, shop_id=body.shop_id)
 
+    # 2) Validar category -> shop (si viene)
     if body.category_id is not None:
         await ensure_category_in_shop(db, category_id=body.category_id, shop_id=body.shop_id)
 
+    # 3) Resolver slug (si viene nombre/slug)
     incoming_slug = resolve_incoming_slug(body.name, body.slug)
     if incoming_slug is not None and incoming_slug != obj.slug:
         if await slug_in_use(db, shop_id=body.shop_id, slug=incoming_slug, exclude_id=obj.id):
             raise HTTPException(status_code=409, detail="slug already exists for this shop")
         obj.slug = incoming_slug
 
+    # 4) Actualizar solo lo recibido
     if body.name is not None:
         obj.name = body.name
     if body.price is not None:
@@ -320,6 +335,7 @@ async def patch_product(
     if body.category_id is not None:
         obj.category_id = body.category_id
 
+    # 5) Persistir
     try:
         await db.flush()
     except IntegrityError:
@@ -328,19 +344,28 @@ async def patch_product(
 
     await db.commit()
     await db.refresh(obj)
-    return obj
+
+    # 6) Envelope consistente
+    return {"data": obj}
 
 
 # ------------------------ DELETE ------------------------ #
 
 
-@router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{product_id}", response_model=SingleResponse[DeleteResult], status_code=status.HTTP_200_OK
+)
 async def delete_product(
     db: AsyncSession = Depends(get_session),
     product_id: int = Path(..., ge=1),
     shop_id: int = Query(..., ge=1),
 ):
+    # 1) Verifica que exista y pertenezca a la shop
     obj = await fetch_product_or_404(db, product_id=product_id, shop_id=shop_id)
+
+    # 2) Borra y confirma
     await db.delete(obj)
     await db.commit()
-    return None
+
+    # 3) Envelope consistente
+    return {"data": {"id": product_id, "deleted": True}}

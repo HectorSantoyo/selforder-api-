@@ -6,6 +6,11 @@ from pydantic import BaseModel, Field
 T = TypeVar("T")
 
 
+class DeleteResult(BaseModel):
+    id: int
+    deleted: bool = True
+
+
 class SingleResponse(BaseModel, Generic[T]):
     data: T
 
