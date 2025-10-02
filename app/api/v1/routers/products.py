@@ -100,8 +100,8 @@ def sort_clause(sort: ProductSort):
 @router.post("", response_model=SingleResponse[ProductOut], status_code=status.HTTP_201_CREATED)
 async def create_product(
     payload: ProductCreate,
+    resp: Response,
     db: AsyncSession = Depends(get_session),
-    resp: Response = None,
 ):
     # validar shop
     shop = (
