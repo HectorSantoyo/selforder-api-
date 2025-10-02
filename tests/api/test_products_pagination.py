@@ -10,17 +10,29 @@ async def _ensure_shop_and_category(session: AsyncSession) -> tuple[int, int]:
     from app.models.shop import Shop
     from app.models.category import Category
 
-    # shop 1
+    # Shop id=1
     shop = (await session.execute(select(Shop).where(Shop.id == 1))).scalar_one_or_none()
     if shop is None:
-        shop = Shop(id=1, name="Test Shop")
+        shop = Shop(
+            id=1,
+            tenant_id="test-tenant",  # 👈 requerido NOT NULL
+            name="Test Shop",
+            slug="test-shop",  # 👈 probable NOT NULL/unique
+            timezone="America/Mexico_City",
+            address="",  # si es NOT NULL, damos vacío
+        )
         session.add(shop)
         await session.flush()
 
-    # category 1
+    # Category id=1 en shop 1
     cat = (await session.execute(select(Category).where(Category.id == 1))).scalar_one_or_none()
     if cat is None:
-        cat = Category(id=1, name="Test Cat", slug="test-cat", shop_id=1)
+        cat = Category(
+            id=1,
+            name="Test Cat",
+            slug="test-cat",
+            shop_id=1,
+        )
         session.add(cat)
         await session.flush()
 
