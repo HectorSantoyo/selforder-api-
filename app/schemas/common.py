@@ -6,6 +6,10 @@ from pydantic import BaseModel, Field
 T = TypeVar("T")
 
 
+class SingleResponse(BaseModel, Generic[T]):
+    data: T
+
+
 class MetaPagination(BaseModel):
     """Información estándar de paginación."""
 

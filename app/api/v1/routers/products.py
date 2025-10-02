@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Path, status, Resp
 from sqlalchemy import select, func, or_, asc, desc
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.schemas.common import ListResponse, MetaPagination
+from app.schemas.common import ListResponse, MetaPagination, SingleResponse
 
 from app.db.session import get_session
 from app.models.product import Product
@@ -97,10 +97,11 @@ def sort_clause(sort: ProductSort):
 # ------------------------ CREATE ------------------------ #
 
 
-@router.post("", response_model=ProductOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=SingleResponse[ProductOut], status_code=status.HTTP_201_CREATED)
 async def create_product(
     payload: ProductCreate,
     db: AsyncSession = Depends(get_session),
+    resp: Response = None,
 ):
     # validar shop
     shop = (
@@ -137,10 +138,12 @@ async def create_product(
         raise HTTPException(status_code=409, detail="slug already exists for this shop")
     await db.refresh(obj)
 
-    # 👇 debug (puedes quitarlo después)
-    print("DEBUG created product slug:", obj.slug)
+    # Location header (REST friendly)
+    if resp is not None:
+        resp.headers["Location"] = f"/api/v1/products/{obj.id}?shop_id={obj.shop_id}"
 
-    return obj
+    # Envelope consistente
+    return {"data": obj}
 
 
 # ------------------------ LIST (con paginación + headers) ------------------------ #
@@ -242,14 +245,17 @@ async def list_products(
 # ------------------------ GET by id ------------------------ #
 
 
-@router.get("/{product_id}", response_model=ProductOut, status_code=status.HTTP_200_OK)
+@router.get(
+    "/{product_id}", response_model=SingleResponse[ProductOut], status_code=status.HTTP_200_OK
+)
 async def get_product(
     db: AsyncSession = Depends(get_session),
     product_id: int = Path(..., ge=1),
     shop_id: int = Query(..., ge=1),
 ):
     obj = await fetch_product_or_404(db, product_id=product_id, shop_id=shop_id)
-    return obj
+    # Envelope consistente: { "data": { ...product... } }
+    return {"data": obj}
 
 
 # ------------------------ PUT ------------------------ #
